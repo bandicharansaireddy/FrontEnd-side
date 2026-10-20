@@ -5,13 +5,14 @@ FreshMart is a responsive fruit and vegetable storefront with a bold neobrutalis
 ## Stack and current features
 
 - React, TypeScript, Vite, React Router, Axios, and Lucide React
-- Home, shop, product detail, cart, demo checkout, about, contact, privacy, and terms routes
+- Home, shop, product detail, cart, checkout, order history, about, contact, privacy, and terms routes
 - Registration, email/mobile login, protected account, password change, forgot password, OTP verification, and reset password
 - Search, category filters, price sorting, product details, quantity controls, and cart persistence
+- Signed-in carts, addresses, unpaid demo checkout, order history, and role-gated admin workspace through the backend API
 - Responsive layouts, keyboard focus indicators, native form validation, and reduced-motion support
 - Central Axios API client configured with `VITE_API_BASE_URL`
 
-Product catalog content uses illustrative local demo data when the backend is unavailable. The checkout confirms a demo order locally; it does not call a payment provider or schedule delivery. Cart data is stored in browser local storage and contains only product display data and quantities. Authentication data stays in React memory; refresh tokens stay in the backend's HttpOnly cookie, and reset challenges are not persisted by the browser.
+Product catalog content uses illustrative local demo data when the backend is unavailable. Guest checkout confirms a demo order locally; signed-in checkout records an unpaid demo order through the API. Neither path calls a payment provider or schedules delivery. Guest cart data is stored in browser local storage and contains only product display data and quantities; signed-in cart data is kept by the API. Authentication data stays in React memory; refresh tokens stay in the backend's HttpOnly cookie, and reset challenges are not persisted by the browser.
 
 ## Prerequisites
 
