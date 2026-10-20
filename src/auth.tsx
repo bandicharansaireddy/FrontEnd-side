@@ -7,6 +7,7 @@ export type AuthUser = { id: number; fullName: string; email: string; mobile: st
 type AuthPayload = { accessToken: string; user: AuthUser }
 type AuthContextValue = {
   user: AuthUser | null; accessToken: string | null; resetToken: string | null;
+  authReady: boolean;
   accept: (payload: AuthPayload) => void; logout: () => Promise<void>; setResetToken: (token: string | null) => void
 }
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -18,6 +19,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [resetToken, setResetToken] = useState<string | null>(null)
+  const [authReady, setAuthReady] = useState(false)
   const accept = (payload: AuthPayload) => { setUser(payload.user); setAccessToken(payload.accessToken) }
   useEffect(() => {
     const interceptor = api.interceptors.request.use(config => {
@@ -46,22 +48,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let alive = true
     if (!startupRefresh) startupRefresh = api.post<AuthPayload>('/auth/refresh').then(({ data }) => data).finally(() => { startupRefresh = null })
-    startupRefresh.then(payload => { if (alive) accept(payload) }).catch(() => { /* No stored credentials; remain signed out. */ })
+    startupRefresh.then(payload => { if (alive) accept(payload) }).catch(() => { /* No stored credentials; remain signed out. */ }).finally(() => { if (alive) setAuthReady(true) })
     return () => { alive = false }
   }, [])
   const logout = async () => {
     try { await api.post('/auth/logout') } finally { setAccessToken(null); setUser(null); setResetToken(null) }
   }
-  const value = useMemo(() => ({ user, accessToken, resetToken, accept, logout, setResetToken }), [user, accessToken, resetToken])
+  const value = useMemo(() => ({ user, accessToken, resetToken, authReady, accept, logout, setResetToken }), [user, accessToken, resetToken, authReady])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth(); const location = useLocation()
+  const { user, authReady } = useAuth(); const location = useLocation()
+  if (!authReady) return <main className="page-shell empty-state" role="status">Checking your account…</main>
   return user ? <>{children}</> : <Navigate to="/login" replace state={{ from: location.pathname }}/>
 }
 export function AdminRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth()
+  const { user, authReady } = useAuth()
+  if (!authReady) return <main className="page-shell empty-state" role="status">Checking your account…</main>
   return user?.role === 'ADMIN' ? <>{children}</> : <Navigate to={user ? '/account' : '/login'} replace />
 }
 
@@ -76,12 +80,12 @@ function ErrorNotice({ message }: { message: string }) { return message ? <p cla
 export function LoginPage() {
   const { accept } = useAuth(); const navigate = useNavigate(); const location = useLocation()
   const [identifier,setIdentifier]=useState(''); const [password,setPassword]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('')
-  return <AuthFrame eyebrow="WELCOME BACK" title={<>Good to see<br/><em>you again.</em></>} copy="Your next good meal is just a few fresh picks away."><form className="auth-form" onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{const {data}=await api.post<AuthPayload>('/auth/login',{identifier,password});accept(data);navigate(location.state?.from||'/account',{replace:true})}catch(err){setError(getApiErrorMessage(err,'Could not sign in. Check your details and try again.'))}finally{setBusy(false)}}}><AuthField label="EMAIL OR MOBILE NUMBER" autoComplete="username" required value={identifier} onChange={e=>setIdentifier(e.target.value)}/><AuthField label="PASSWORD" type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)}/><div className="auth-row"><Link to="/forgot-password">Forgot password?</Link><span>Secure sign-in</span></div><ErrorNotice message={error}/><button className="button button-dark auth-submit" disabled={busy}>{busy?'SIGNING YOU IN…':'SIGN IN'} <ArrowRight size={17}/></button><p className="auth-switch">New around here? <Link to="/register">Make an account</Link></p></form></AuthFrame>
+  return <AuthFrame eyebrow="WELCOME BACK" title={<>Good to see<br/><em>you again.</em></>} copy="Your next good meal is just a few fresh picks away.">{location.state?.from==='/checkout'&&<p className="auth-success">Sign in or create an account to place your order. Your basket is saved.</p>}<form className="auth-form" onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{const {data}=await api.post<AuthPayload>('/auth/login',{identifier,password});accept(data);navigate(location.state?.from||'/account',{replace:true})}catch(err){setError(getApiErrorMessage(err,'Could not sign in. Check your details and try again.'))}finally{setBusy(false)}}}><AuthField label="EMAIL OR MOBILE NUMBER" autoComplete="username" required value={identifier} onChange={e=>setIdentifier(e.target.value)}/><AuthField label="PASSWORD" type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)}/><div className="auth-row"><Link to="/forgot-password">Forgot password?</Link><span>Secure sign-in</span></div><ErrorNotice message={error}/><button className="button button-dark auth-submit" disabled={busy}>{busy?'SIGNING YOU IN…':'SIGN IN'} <ArrowRight size={17}/></button><p className="auth-switch">New around here? <Link to="/register" state={{from:location.state?.from}}>Make an account</Link></p></form></AuthFrame>
 }
 
 export function RegisterPage() {
-  const { accept }=useAuth();const navigate=useNavigate();const [busy,setBusy]=useState(false);const [error,setError]=useState('')
-  return <AuthFrame eyebrow="JOIN THE MARKET" title={<>Let’s get<br/><em>you fresh.</em></>} copy="Create an account for easier market runs and a little more good in your day."><form className="auth-form" onSubmit={async e=>{e.preventDefault();const form=new FormData(e.currentTarget);const values=Object.fromEntries(form.entries());setBusy(true);setError('');try{const {data}=await api.post<AuthPayload>('/auth/register',values);accept(data);navigate('/account',{replace:true})}catch(err){setError(getApiErrorMessage(err,'Could not create your account. Please try again.'))}finally{setBusy(false)}}}><AuthField label="FULL NAME" name="fullName" autoComplete="name" minLength={3} maxLength={100} required/><AuthField label="EMAIL ADDRESS" name="email" type="email" autoComplete="email" maxLength={254} required/><AuthField label="MOBILE NUMBER" name="mobile" type="tel" inputMode="numeric" pattern="[0-9]{10}" maxLength={10} autoComplete="tel" required/><AuthField label="PASSWORD" name="password" type="password" minLength={8} maxLength={72} autoComplete="new-password" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,72}" title="Use uppercase, lowercase, a number, and a special character" required/><AuthField label="CONFIRM PASSWORD" name="confirmPassword" type="password" minLength={8} maxLength={72} autoComplete="new-password" required/><ErrorNotice message={error}/><button className="button button-dark auth-submit" disabled={busy}>{busy?'CREATING ACCOUNT…':'CREATE ACCOUNT'} <ArrowRight size={17}/></button><p className="auth-switch">Already have an account? <Link to="/login">Sign in</Link></p></form></AuthFrame>
+  const { accept }=useAuth();const navigate=useNavigate();const location=useLocation();const [busy,setBusy]=useState(false);const [error,setError]=useState('')
+  return <AuthFrame eyebrow="JOIN THE MARKET" title={<>Let’s get<br/><em>you fresh.</em></>} copy="Create an account for easier market runs and a little more good in your day.">{location.state?.from==='/checkout'&&<p className="auth-success">Create your account to place the order. Your basket is saved.</p>}<form className="auth-form" onSubmit={async e=>{e.preventDefault();const form=new FormData(e.currentTarget);const values=Object.fromEntries(form.entries());setBusy(true);setError('');try{const {data}=await api.post<AuthPayload>('/auth/register',values);accept(data);navigate(location.state?.from||'/account',{replace:true})}catch(err){setError(getApiErrorMessage(err,'Could not create your account. Please try again.'))}finally{setBusy(false)}}}><AuthField label="FULL NAME" name="fullName" autoComplete="name" minLength={3} maxLength={100} required/><AuthField label="EMAIL ADDRESS" name="email" type="email" autoComplete="email" maxLength={254} required/><AuthField label="MOBILE NUMBER" name="mobile" type="tel" inputMode="numeric" pattern="[0-9]{10}" maxLength={10} autoComplete="tel" required/><AuthField label="PASSWORD" name="password" type="password" minLength={8} maxLength={72} autoComplete="new-password" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,72}" title="Use uppercase, lowercase, a number, and a special character" required/><AuthField label="CONFIRM PASSWORD" name="confirmPassword" type="password" minLength={8} maxLength={72} autoComplete="new-password" required/><ErrorNotice message={error}/><button className="button button-dark auth-submit" disabled={busy}>{busy?'CREATING ACCOUNT…':'CREATE ACCOUNT'} <ArrowRight size={17}/></button><p className="auth-switch">Already have an account? <Link to="/login" state={{from:location.state?.from}}>Sign in</Link></p></form></AuthFrame>
 }
 
 export function ForgotPasswordPage() {
